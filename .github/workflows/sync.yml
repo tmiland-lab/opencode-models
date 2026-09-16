@@ -1,0 +1,43 @@
+name: sync
+
+# Mirrors the upstream models catalog so the fork's OPENCODE_MODELS_URL
+# points at infrastructure we control (own limits: we decide refresh
+# cadence, pinning, and fork-specific model entries).
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream catalog
+        run: |
+          curl -sf -m 120 -A "tmiland-lab-opencode-models-mirror/1.0" \
+            https://models.opencode.ai/api.json -o docs/api.json.tmp
+          mv -f docs/api.json.tmp docs/api.json
+      - name: Commit if changed
+        # Amend + force-push keeps history at one commit so the 4.6MB
+        # catalog blob never bloats the repo. api.json.pinned is the
+        # manual disaster fallback and is never touched here.
+        run: |
+          if git diff --quiet -- docs/api.json; then
+            echo "unchanged"
+          else
+            git config user.name "tmiland-lab[bot]"
+            git config user.email "326116980+tmiland-lab[bot]@users.noreply.github.com"
+            git add docs/api.json
+            git commit --amend -m "chore: sync upstream models catalog ($(date -u +%F))" --date="$(date -u -R)"
+            git push --force
+          fi
